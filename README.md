@@ -1,5 +1,7 @@
 # radarNews
 
+[![CI](https://github.com/vitaa1/radarNews/actions/workflows/ci.yml/badge.svg)](https://github.com/vitaa1/radarNews/actions/workflows/ci.yml)
+
 O **radarNews** é um monitor pessoal e gratuito de conteúdo **já publicado oficialmente** sobre Brawl Stars. Ele detecta novidades da Supercell e do canal oficial do Brawl Stars na nuvem, avisa pelo Telegram e usa o Ollama no seu computador para criar uma pauta em português para os artigos que contêm texto verificável. A pauta transforma o anúncio em um ponto de partida para um vídeo útil e diferenciado, sem inventar fatos para disputar atenção.
 
 O projeto não procura vazamentos, arquivos escondidos, servidores privados, rumores, Reddit ou perfis não oficiais. As fontes monitoradas são:
