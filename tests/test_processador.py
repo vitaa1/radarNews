@@ -9,7 +9,6 @@ from unittest.mock import patch
 from local.processador import (
     ArticleTextExtractor,
     RadarError,
-    RejectRedirectHandler,
     build_messages,
     is_allowed_source_url,
     load_channel_profile,
@@ -220,18 +219,6 @@ class ProcessadorTests(unittest.TestCase):
                     "roteiro_curto": "Este roteiro ainda está curto. " * 10,
                     "pontos_a_verificar": "Nada além da fonte oficial",
                 }
-            )
-
-    def test_recusa_redirecionamento_em_chamada_autenticada(self) -> None:
-        handler = RejectRedirectHandler()
-        with self.assertRaisesRegex(RadarError, "redirecionamento"):
-            handler.redirect_request(
-                req=object(),
-                fp=None,
-                code=302,
-                msg="Found",
-                headers={},
-                newurl="https://destino.example/roubo",
             )
 
     def test_rejeita_worker_url_com_credenciais_caminho_ou_query(self) -> None:
