@@ -405,7 +405,11 @@ O Worker não cria uma linha de base vazia. Isso é intencional: se o HTML ofici
 - [src/index.ts](./src/index.ts): rotas, cron, D1, reservas e Telegram;
 - [src/source-parser.ts](./src/source-parser.ts): reconhecimento dos links oficiais;
 - [migrations](./migrations): estrutura e evoluções incrementais do D1;
-- [local/processador.py](./local/processador.py): leitura segura, Ollama e devolução da pauta;
+- [local/processador.py](./local/processador.py): orquestração do processamento e interface de linha de comando;
+- [local/configuration.py](./local/configuration.py): carregamento e validação da configuração local;
+- [local/source_reader.py](./local/source_reader.py): download seguro e extração do texto oficial;
+- [local/editorial.py](./local/editorial.py): prompt, contrato JSON e validação da pauta;
+- [local/http_client.py](./local/http_client.py): comunicação HTTP com proteção contra redirecionamentos autenticados;
 - [local/desempenho.py](./local/desempenho.py): diário SQLite local e resumo de métricas do canal;
 - [local/perfil-canal.example.json](./local/perfil-canal.example.json): modelo de posicionamento editorial do canal;
 - [scripts/executar-worker.ps1](./scripts/executar-worker.ps1): força uma coleta imediata usando a configuração de `local/.env`;
