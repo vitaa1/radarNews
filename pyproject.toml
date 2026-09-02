@@ -10,6 +10,6 @@ branch = true
 source = ["local"]
 
 [tool.coverage.report]
-fail_under = 60
+fail_under = 65
 show_missing = true
 skip_covered = true
