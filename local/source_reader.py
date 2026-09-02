@@ -128,6 +128,7 @@ class ArticleTextExtractor(HTMLParser):
 def is_allowed_source_url(url: str) -> bool:
     try:
         parsed = urllib.parse.urlsplit(url)
+        port = parsed.port
     except ValueError:
         return False
     return (
@@ -135,7 +136,7 @@ def is_allowed_source_url(url: str) -> bool:
         and parsed.hostname in ALLOWED_SOURCE_HOSTS
         and parsed.username is None
         and parsed.password is None
-        and parsed.port in (None, 443)
+        and port in (None, 443)
     )
 
 
@@ -170,7 +171,12 @@ def download_article(url: str) -> str:
 
     if len(raw) > 1_500_000:
         raise RadarError("A página excedeu o limite seguro de 1,5 MB.")
-    page = raw.decode(charset, errors="replace")
+    try:
+        page = raw.decode(charset, errors="replace")
+    except LookupError as error:
+        raise RadarError(
+            "A fonte informou uma codificação de texto inválida."
+        ) from error
     extractor = ArticleTextExtractor()
     extractor.feed(page)
     extractor.close()
