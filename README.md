@@ -32,7 +32,7 @@ Na primeira consulta de **cada fonte**, as publicações atuais viram uma linha 
 - [Ollama](https://ollama.com/download);
 - uma conta no Telegram.
 
-Não é preciso instalar pacotes Python: o processador usa apenas a biblioteca padrão.
+O processador usa apenas a biblioteca padrão do Python. As ferramentas de qualidade usadas no desenvolvimento ficam separadas em `requirements-dev.txt`.
 
 ## Instalação passo a passo
 
@@ -43,10 +43,11 @@ Abra o PowerShell e execute:
 ```powershell
 cd C:\radar-news
 npm install
+python -m pip install --requirement requirements-dev.txt
 npm run check
 ```
 
-O último comando valida os tipos e os testes TypeScript. A validação completa, incluindo Python, migrações e empacotamento do Worker, aparece na seção [Validar tudo depois de uma alteração](#validar-tudo-depois-de-uma-alteração).
+Os dois primeiros comandos instalam as dependências do Worker e as ferramentas de qualidade Python. O último valida os tipos e os testes TypeScript. A validação completa, incluindo Python, migrações e empacotamento do Worker, aparece na seção [Validar tudo depois de uma alteração](#validar-tudo-depois-de-uma-alteração).
 
 ### 2. Criar o bot do Telegram
 
@@ -317,7 +318,7 @@ Além das métricas locais, o Worker fornece automaticamente os últimos oito â
 
 ## Validar tudo depois de uma alteração
 
-O atalho abaixo valida TypeScript, testes do coletor, compilação e testes Python, migrações locais e o empacotamento do Worker:
+O atalho abaixo valida TypeScript, lint, formatação e cobertura Python, migrações locais e o empacotamento do Worker. Antes da primeira execução, instale as ferramentas com `python -m pip install --requirement requirements-dev.txt`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\validar.ps1
@@ -329,8 +330,11 @@ Também é possível executar cada verificação separadamente:
 
 ```powershell
 npm run check
+python -m ruff check local tests
+python -m ruff format --check local tests
 python -m compileall -q local tests
-python -m unittest discover -s tests -p "test_*.py" -v
+python -m coverage run -m unittest discover -s tests -p "test_*.py" -v
+python -m coverage report
 npm run db:migrate:local
 npx wrangler deploy --dry-run
 ```

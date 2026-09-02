@@ -4,17 +4,18 @@ import argparse
 import re
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
-
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = BASE_DIR / "desempenho.db"
 FORMATS = ("Short", "Vídeo")
 TITLE_STYLES = ("Pesquisável", "Intrigante", "Equilibrado", "Outro")
-YOUTUBE_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"})
+YOUTUBE_HOSTS = frozenset(
+    {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
+)
 
 
 def connect_database(path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
@@ -74,7 +75,9 @@ def normalize_youtube_url(value: str) -> str:
         if len(parts) == 2 and parts[0] in {"shorts", "live"}:
             video_id = parts[1]
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
-        raise ValueError("A URL não contém um identificador válido de vídeo do YouTube.")
+        raise ValueError(
+            "A URL não contém um identificador válido de vídeo do YouTube."
+        )
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
@@ -115,7 +118,9 @@ def validate_result(value: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"O formato deve ser {' ou '.join(FORMATS)}.")
     title_style = str(value.get("title_style", "")).strip()
     if title_style not in TITLE_STYLES:
-        raise ValueError(f"O estilo do título deve ser um de: {', '.join(TITLE_STYLES)}.")
+        raise ValueError(
+            f"O estilo do título deve ser um de: {', '.join(TITLE_STYLES)}."
+        )
     published_on = str(value.get("published_on", "")).strip()
     try:
         publication_date = date.fromisoformat(published_on)
@@ -151,7 +156,7 @@ def validate_result(value: dict[str, Any]) -> dict[str, Any]:
 
 def save_result(value: dict[str, Any], path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
     result = validate_result(value)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with closing(connect_database(path)) as connection:
         with connection:
             connection.execute(
@@ -225,7 +230,9 @@ def build_performance_context(path: Path = DEFAULT_DB_PATH, limit: int = 8) -> s
         return ""
     safe_limit = min(max(int(limit), 1), 20)
     with closing(connect_database(path)) as connection:
-        total = int(connection.execute("SELECT COUNT(*) FROM video_results").fetchone()[0])
+        total = int(
+            connection.execute("SELECT COUNT(*) FROM video_results").fetchone()[0]
+        )
         rows = connection.execute(
             "SELECT * FROM video_results ORDER BY published_on DESC, id DESC LIMIT ?",
             (safe_limit,),
@@ -297,14 +304,18 @@ def interactive_result(path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
     result = {
         "youtube_url": youtube_url,
         "title": prompt_value("Título publicado", current.get("title"), True),
-        "format": prompt_value("Formato (Short/Vídeo)", current.get("format") or "Short", True),
+        "format": prompt_value(
+            "Formato (Short/Vídeo)", current.get("format") or "Short", True
+        ),
         "title_style": prompt_value(
             "Estilo do título (Pesquisável/Intrigante/Equilibrado/Outro)",
             current.get("title_style") or "Equilibrado",
             True,
         ),
         "published_on": prompt_value(
-            "Data de publicação (AAAA-MM-DD)", current.get("published_on") or date.today(), True
+            "Data de publicação (AAAA-MM-DD)",
+            current.get("published_on") or date.today(),
+            True,
         ),
         "views_48h": prompt_value("Views após 48h", current.get("views_48h")),
         "views_7d": prompt_value("Views após 7 dias", current.get("views_7d")),

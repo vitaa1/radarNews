@@ -102,7 +102,11 @@ class ProcessadorTests(unittest.TestCase):
 
     def test_prompt_usa_perfil_e_historico_apenas_como_contexto(self) -> None:
         messages = build_messages(
-            {"source": "Supercell", "title": "Anúncio", "url": "https://supercell.com/"},
+            {
+                "source": "Supercell",
+                "title": "Anúncio",
+                "url": "https://supercell.com/",
+            },
             "Texto oficial.",
             {"tom_de_voz": "Direto e curioso"},
             [
@@ -142,14 +146,24 @@ class ProcessadorTests(unittest.TestCase):
     def test_normaliza_historico_editorial_sem_confiar_no_formato(self) -> None:
         history = normalize_editorial_history(
             [
-                {"title": "Anterior", "classification": "Evento", "angle": "Ângulo útil"},
+                {
+                    "title": "Anterior",
+                    "classification": "Evento",
+                    "angle": "Ângulo útil",
+                },
                 {"title": "Sem ângulo"},
                 "inválido",
             ]
         )
         self.assertEqual(
             history,
-            [{"titulo": "Anterior", "classificacao": "Evento", "angulo": "Ângulo útil"}],
+            [
+                {
+                    "titulo": "Anterior",
+                    "classificacao": "Evento",
+                    "angulo": "Ângulo útil",
+                }
+            ],
         )
 
     def test_rejeita_classificacao_inventada(self) -> None:
@@ -327,7 +341,10 @@ class ProcessadorTests(unittest.TestCase):
 
         with (
             patch("local.processador.request_json", side_effect=fake_request),
-            patch("local.processador.download_article", return_value="Texto oficial. " * 30),
+            patch(
+                "local.processador.download_article",
+                return_value="Texto oficial. " * 30,
+            ),
             patch("local.processador.call_ollama", return_value=analysis),
         ):
             processed, failed = process_once(

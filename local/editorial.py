@@ -39,10 +39,18 @@ ANALYSIS_SCHEMA: dict[str, Any] = {
         "pontos_a_verificar": {"type": "string"},
     },
     "required": [
-        "resumo", "classificacao", "prioridade", "publico_alvo",
-        "angulo_diferenciado", "gancho_abertura", "titulos",
-        "conceito_thumbnail", "estrategia_retencao", "experimento_crescimento",
-        "roteiro_curto", "pontos_a_verificar",
+        "resumo",
+        "classificacao",
+        "prioridade",
+        "publico_alvo",
+        "angulo_diferenciado",
+        "gancho_abertura",
+        "titulos",
+        "conceito_thumbnail",
+        "estrategia_retencao",
+        "experimento_crescimento",
+        "roteiro_curto",
+        "pontos_a_verificar",
     ],
     "additionalProperties": False,
 }
@@ -136,9 +144,9 @@ Escreva de forma concisa:
 Não confunda hipótese editorial com fato: se a fonte não permitir afirmar um impacto, diga isso.
 Se nada precisar de verificação adicional, escreva "Nada além de conferir a fonte oficial".
 
-Fonte: {item.get('source', '')}
-Título: {item.get('title', '')}
-URL: {item.get('url', '')}
+Fonte: {item.get("source", "")}
+Título: {item.get("title", "")}
+URL: {item.get("url", "")}
 {strategy_context}
 CONTEÚDO PÚBLICO DA FONTE OFICIAL:
 {article}
@@ -184,16 +192,27 @@ def validate_analysis(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RadarError("A análise do modelo não é um objeto JSON.")
     required_strings = (
-        "resumo", "classificacao", "prioridade", "publico_alvo",
-        "angulo_diferenciado", "gancho_abertura", "conceito_thumbnail",
-        "estrategia_retencao", "experimento_crescimento", "roteiro_curto",
+        "resumo",
+        "classificacao",
+        "prioridade",
+        "publico_alvo",
+        "angulo_diferenciado",
+        "gancho_abertura",
+        "conceito_thumbnail",
+        "estrategia_retencao",
+        "experimento_crescimento",
+        "roteiro_curto",
         "pontos_a_verificar",
     )
     if any(not isinstance(value.get(key), str) for key in required_strings):
         raise RadarError("A análise do modelo está sem um campo de texto obrigatório.")
     titles = value.get("titulos")
-    if not isinstance(titles, list) or len(titles) != 3 or not all(
-        isinstance(title, str) and len(title.strip()) >= 5 for title in titles
+    if (
+        not isinstance(titles, list)
+        or len(titles) != 3
+        or not all(
+            isinstance(title, str) and len(title.strip()) >= 5 for title in titles
+        )
     ):
         raise RadarError("O modelo deve devolver exatamente três títulos válidos.")
     if value["classificacao"] not in CLASSIFICATIONS:
@@ -212,8 +231,7 @@ def validate_analysis(value: Any) -> dict[str, Any]:
         "pontos_a_verificar": 2,
     }
     if any(
-        len(value[key].strip()) < minimum
-        for key, minimum in minimum_lengths.items()
+        len(value[key].strip()) < minimum for key, minimum in minimum_lengths.items()
     ):
         raise RadarError("A análise do modelo contém um campo curto demais.")
     script_word_count = len(value["roteiro_curto"].split())

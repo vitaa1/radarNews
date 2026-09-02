@@ -124,7 +124,9 @@ def process_once(
         if not isinstance(claim_token, str) or not isinstance(items, list):
             raise RadarError("O Worker devolveu uma reserva em formato inesperado.")
         if len(items) > 1:
-            raise RadarError("O Worker devolveu mais de um item para uma reserva individual.")
+            raise RadarError(
+                "O Worker devolveu mais de um item para uma reserva individual."
+            )
         if not items:
             if processed == 0 and failed == 0:
                 print("Nenhuma pauta pendente.")
@@ -176,7 +178,8 @@ def process_once(
                 else:
                     print("Pauta enviada ao Telegram.")
             processed += 1
-        except Exception as error:  # o item volta para a fila e poderá ser tentado de novo
+        # Qualquer falha devolve o item à fila para uma nova tentativa.
+        except Exception as error:
             failed += 1
             message = str(error)
             print(
@@ -184,7 +187,9 @@ def process_once(
                 file=sys.stderr,
             )
             try:
-                release = release_item(worker_url, secret, item_id, claim_token, message)
+                release = release_item(
+                    worker_url, secret, item_id, claim_token, message
+                )
                 if release.get("deadLettered"):
                     print(
                         "O item atingiu o limite de tentativas e foi movido para a fila de falhas.",
@@ -204,7 +209,9 @@ def main() -> int:
         load_dotenv(BASE_DIR / ".env")
         channel_profile = load_channel_profile(BASE_DIR / "perfil-canal.json")
         parser = argparse.ArgumentParser(description="Processador local do radarNews")
-        parser.add_argument("--once", action="store_true", help="Executa uma vez e encerra")
+        parser.add_argument(
+            "--once", action="store_true", help="Executa uma vez e encerra"
+        )
         parser.add_argument(
             "--dry-run", action="store_true", help="Mostra a pauta e a devolve à fila"
         )
