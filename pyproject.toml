@@ -1,0 +1,15 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["B", "E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.coverage.run]
+branch = true
+source = ["local"]
+
+[tool.coverage.report]
+fail_under = 60
+show_missing = true
+skip_covered = true

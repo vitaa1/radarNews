@@ -9,7 +9,7 @@ $wranglerLogDirectory = Join-Path $projectRoot ".wrangler\logs"
 New-Item -ItemType Directory -Path $wranglerLogDirectory -Force | Out-Null
 $env:WRANGLER_LOG_PATH = $wranglerLogDirectory
 
-Write-Host "1/5 - Validando TypeScript e testes do coletor..."
+Write-Host "1/6 - Validando TypeScript e testes do coletor..."
 npm run check
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -42,20 +42,28 @@ if (-not [version]::TryParse($pythonVersionText, [ref]$pythonVersion) -or
 }
 Write-Host ("Python {0} encontrado." -f $pythonVersion)
 
-Write-Host "2/5 - Compilando Python..."
+Write-Host "2/6 - Validando lint e formatacao do Python..."
+& $pythonExecutable @pythonArgs -m ruff check local tests
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $pythonExecutable @pythonArgs -m ruff format --check local tests
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Write-Host "3/6 - Compilando Python..."
 & $pythonExecutable @pythonArgs -m compileall -q local tests
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "3/5 - Executando testes do Python..."
-& $pythonExecutable @pythonArgs -m unittest discover -s tests -p "test_*.py" -v
+Write-Host "4/6 - Executando testes do Python com cobertura..."
+& $pythonExecutable @pythonArgs -m coverage run -m unittest discover -s tests -p "test_*.py" -v
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $pythonExecutable @pythonArgs -m coverage report
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "4/5 - Validando as migracoes no D1 local..."
+Write-Host "5/6 - Validando as migracoes no D1 local..."
 npm run db:migrate:local
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "5/5 - Validando o pacote do Cloudflare Worker..."
+Write-Host "6/6 - Validando o pacote do Cloudflare Worker..."
 npx wrangler deploy --dry-run --outdir .wrangler/dry-run
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "Tudo certo: TypeScript, Python e pacote do Worker foram validados." -ForegroundColor Green
+Write-Host "Tudo certo: qualidade, testes e pacote do Worker foram validados." -ForegroundColor Green

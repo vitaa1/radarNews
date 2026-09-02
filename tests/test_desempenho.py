@@ -35,13 +35,19 @@ def valid_result(**overrides: object) -> dict[str, object]:
 class DesempenhoTests(unittest.TestCase):
     def test_normaliza_formatos_publicos_do_mesmo_video(self) -> None:
         expected = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-        self.assertEqual(normalize_youtube_url("https://youtu.be/dQw4w9WgXcQ?t=2"), expected)
         self.assertEqual(
-            normalize_youtube_url("https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share"),
+            normalize_youtube_url("https://youtu.be/dQw4w9WgXcQ?t=2"), expected
+        )
+        self.assertEqual(
+            normalize_youtube_url(
+                "https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share"
+            ),
             expected,
         )
         self.assertEqual(
-            normalize_youtube_url("https://youtube.com/watch?v=dQw4w9WgXcQ&utm_source=x"),
+            normalize_youtube_url(
+                "https://youtube.com/watch?v=dQw4w9WgXcQ&utm_source=x"
+            ),
             expected,
         )
 

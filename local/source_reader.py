@@ -31,7 +31,9 @@ class SafeSourceRedirectHandler(urllib.request.HTTPRedirectHandler):
         newurl: str,
     ) -> urllib.request.Request | None:
         if not is_allowed_source_url(newurl):
-            raise RadarError("A fonte tentou redirecionar para um domínio não autorizado.")
+            raise RadarError(
+                "A fonte tentou redirecionar para um domínio não autorizado."
+            )
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -40,12 +42,35 @@ class ArticleTextExtractor(HTMLParser):
 
     _SKIP_TAGS = {"script", "style", "svg", "nav", "footer", "noscript", "form"}
     _VOID_TAGS = {
-        "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
-        "meta", "param", "source", "track", "wbr",
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
     }
     _BLOCK_TAGS = {
-        "article", "br", "div", "h1", "h2", "h3", "h4", "h5", "h6",
-        "li", "main", "p", "section",
+        "article",
+        "br",
+        "div",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "main",
+        "p",
+        "section",
     }
 
     def __init__(self) -> None:
@@ -55,9 +80,7 @@ class ArticleTextExtractor(HTMLParser):
         self._all: list[str] = []
         self._primary: list[str] = []
 
-    def handle_starttag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         del attrs
         tag = tag.lower()
         if self._skip_depth > 0:
@@ -72,9 +95,7 @@ class ArticleTextExtractor(HTMLParser):
         if tag in self._BLOCK_TAGS:
             self._append("\n")
 
-    def handle_startendtag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         del attrs
         if self._skip_depth == 0 and tag.lower() in self._BLOCK_TAGS:
             self._append("\n")
@@ -155,7 +176,9 @@ def download_article(url: str) -> str:
     extractor.close()
     text = extractor.text()[:16_000]
     if len(text) < 200:
-        raise RadarError("Foi extraído pouco texto; a estrutura da página pode ter mudado.")
+        raise RadarError(
+            "Foi extraído pouco texto; a estrutura da página pode ter mudado."
+        )
     return text
 
 

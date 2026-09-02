@@ -11,7 +11,8 @@
 <!-- Informe os comandos executados e os cenários verificados. -->
 
 - [ ] TypeScript e testes: `npm run check`
-- [ ] Python: `python -m unittest discover -s tests -p "test_*.py" -v`
+- [ ] Qualidade Python: `python -m ruff check local tests` e `python -m ruff format --check local tests`
+- [ ] Testes Python: `python -m coverage run -m unittest discover -s tests -p "test_*.py" -v` e `python -m coverage report`
 - [ ] Migrações locais: `npm run db:migrate:local`
 - [ ] Bundle do Worker: `npm run validate:worker`
 

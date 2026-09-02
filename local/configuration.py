@@ -39,7 +39,9 @@ def load_channel_profile(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as error:
-        raise RadarError(f"O perfil editorial em {path.name} não é um JSON válido.") from error
+        raise RadarError(
+            f"O perfil editorial em {path.name} não é um JSON válido."
+        ) from error
     if not isinstance(value, dict):
         raise RadarError(f"O perfil editorial em {path.name} deve ser um objeto JSON.")
 
@@ -67,7 +69,9 @@ def load_channel_profile(path: Path) -> dict[str, Any] | None:
                 f"O campo {key} do perfil editorial deve ter de 1 a {maximum_items} itens."
             )
         if not all(isinstance(item, str) and item.strip() for item in raw):
-            raise RadarError(f"O campo {key} do perfil editorial contém um item inválido.")
+            raise RadarError(
+                f"O campo {key} do perfil editorial contém um item inválido."
+            )
         profile[key] = [item.strip()[:200] for item in raw]
     if not profile:
         raise RadarError(f"O perfil editorial em {path.name} está vazio.")
@@ -104,7 +108,9 @@ def validate_configuration(
         worker_port = parsed_worker.port
         ollama_port = parsed_ollama.port
     except ValueError as error:
-        raise RadarError("WORKER_URL ou OLLAMA_URL contém uma porta inválida.") from error
+        raise RadarError(
+            "WORKER_URL ou OLLAMA_URL contém uma porta inválida."
+        ) from error
     if worker_port not in (None, 443):
         raise RadarError("WORKER_URL deve usar a porta HTTPS padrão 443.")
     if (
