@@ -1,0 +1,2 @@
+# O processador usa somente a biblioteca padrão do Python.
+# Não há pacotes para instalar com pip.

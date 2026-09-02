@@ -1,0 +1,17 @@
+{
+  "nome_canal": "Meu canal de Brawl Stars",
+  "posicionamento": "Explicar novidades oficiais de forma rápida, prática e honesta para jogadores brasileiros.",
+  "publico_principal": "Jogadores brasileiros casuais e competitivos que querem entender o impacto das atualizações sem perder tempo.",
+  "tom_de_voz": "Direto, curioso, bem-humorado e sem exageros.",
+  "diferenciais": [
+    "Separar claramente fatos, hipóteses e opinião",
+    "Explicar a consequência prática para o jogador",
+    "Começar pelo ponto mais útil da notícia"
+  ],
+  "evitar": [
+    "Clickbait enganoso",
+    "Rumores e vazamentos",
+    "Introduções longas",
+    "Imitar bordões de outros criadores"
+  ]
+}
