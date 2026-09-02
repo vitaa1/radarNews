@@ -1,0 +1,29 @@
+{
+  "name": "radar-news",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Monitor pessoal de conteudo publico oficial de Brawl Stars",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test:ts": "node --experimental-strip-types --test tests/*.test.ts",
+    "check": "npm run typecheck && npm run test:ts",
+    "db:migrate:local": "wrangler d1 migrations apply radar-news --local",
+    "db:migrate:remote": "wrangler d1 migrations apply radar-news --remote"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260830.1",
+    "@types/node": "^26.4.0",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.33.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20260828.1": true
+  }
+}

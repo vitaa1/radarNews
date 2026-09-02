@@ -1,0 +1,14 @@
+node_modules/
+.npm-cache/
+.wrangler/
+.dev.vars
+.env
+local/.env
+local/perfil-canal.json
+local/desempenho.db*
+*.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.DS_Store

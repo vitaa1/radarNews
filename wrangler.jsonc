@@ -1,0 +1,22 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "radar-news",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-30",
+	"triggers": {
+		"crons": [
+			"*/15 * * * *"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "radar-news",
+			"database_id": "4f741b5a-98a4-403b-ad2c-df5b7f147ffe",
+			"migrations_dir": "migrations"
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}

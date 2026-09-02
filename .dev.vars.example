@@ -1,0 +1,4 @@
+# Apenas para testar o Worker localmente. Nunca envie .dev.vars ao Git.
+TELEGRAM_BOT_TOKEN=cole_o_token_do_bot
+TELEGRAM_CHAT_ID=cole_o_id_do_chat
+SHARED_SECRET=cole_uma_chave_aleatoria_longa
