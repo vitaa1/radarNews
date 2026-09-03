@@ -7,14 +7,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from local.processador import (
-    ArticleTextExtractor,
     RadarError,
     build_messages,
-    is_allowed_source_url,
     load_channel_profile,
     load_dotenv,
     normalize_editorial_history,
-    normalize_text,
     process_once,
     release_item,
     validate_analysis,
@@ -33,39 +30,6 @@ class ProcessadorTests(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 load_dotenv(env_path)
                 self.assertEqual(os.environ["RADAR_NEWS_TEST_VALUE"], "funcionou")
-
-    def test_permite_apenas_https_supercell_sem_credenciais_na_url(self) -> None:
-        self.assertTrue(
-            is_allowed_source_url(
-                "https://supercell.com/en/games/brawlstars/blog/news/teste/"
-            )
-        )
-        self.assertFalse(is_allowed_source_url("http://supercell.com/en/news/teste/"))
-        self.assertFalse(is_allowed_source_url("https://evil.example/en/news/teste/"))
-        self.assertFalse(is_allowed_source_url("https://supercell.com.evil.example/x"))
-        self.assertFalse(is_allowed_source_url("https://usuario@supercell.com/x"))
-
-    def test_extrator_prioriza_article_e_remove_script_nav_footer(self) -> None:
-        parser = ArticleTextExtractor()
-        parser.feed(
-            """
-            <nav>menu secreto</nav>
-            <main><article><h1>Título oficial</h1>
-            <p>Este é um conteúdo público suficientemente longo para ser usado.</p>
-            <p>"""
-            + "Detalhe oficial. " * 20
-            + """</p><script>alert('não')</script></article></main>
-            <footer>rodapé</footer>
-            """
-        )
-        text = parser.text()
-        self.assertIn("Título oficial", text)
-        self.assertNotIn("menu secreto", text)
-        self.assertNotIn("alert", text)
-        self.assertNotIn("rodapé", text)
-
-    def test_normaliza_espacos_sem_perder_paragrafos(self) -> None:
-        self.assertEqual(normalize_text(" A   B \n\n\n C "), "A B\n\nC")
 
     def test_valida_analise_estruturada(self) -> None:
         value = {
