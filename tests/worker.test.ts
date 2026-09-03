@@ -5,6 +5,7 @@ import worker, {
   processingFailureState,
   type EditorialAnalysis,
 } from "../src/index.ts";
+import { fakeDatabase } from "./support/fake-d1.ts";
 
 const SECRET = "s".repeat(32);
 const ITEM_ID = "a".repeat(64);
@@ -22,43 +23,6 @@ const VALID_ANALYSIS = {
   roteiro_curto: "Roteiro factual suficientemente longo para ser aceito pelo Worker. ".repeat(8),
   pontos_a_verificar: "Conferir a fonte oficial",
 } satisfies EditorialAnalysis;
-
-interface StatementBehavior {
-  first?: unknown;
-  results?: unknown[];
-  changes?: number;
-  error?: Error;
-}
-
-function fakeDatabase(
-  behaviors: StatementBehavior[],
-  statements: { sql: string; bindings: unknown[] }[],
-): D1Database {
-  return {
-    prepare(sql: string) {
-      const behavior = behaviors.shift() ?? {};
-      const record = { sql, bindings: [] as unknown[] };
-      statements.push(record);
-      const statement = {
-        bind(...values: unknown[]) {
-          record.bindings = values;
-          return statement;
-        },
-        async first<T>() {
-          return (behavior.first ?? null) as T | null;
-        },
-        async all<T>() {
-          if (behavior.error) throw behavior.error;
-          return { results: (behavior.results ?? []) as T[] };
-        },
-        async run() {
-          return { meta: { changes: behavior.changes ?? 0 } };
-        },
-      };
-      return statement as unknown as D1PreparedStatement;
-    },
-  } as unknown as D1Database;
-}
 
 test("aplica backoff progressivo e envia a quinta falha para a fila de falhas", () => {
   const now = new Date("2026-08-30T12:00:00.000Z");
