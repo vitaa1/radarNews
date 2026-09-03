@@ -9,7 +9,7 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test:ts": "node --experimental-strip-types --test tests/*.test.ts",
-    "test:coverage": "node --experimental-strip-types --experimental-test-coverage --test-coverage-lines=55 --test-coverage-branches=55 --test-coverage-functions=60 --test tests/*.test.ts",
+    "test:coverage": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include=src/**/*.ts --test-coverage-lines=90 --test-coverage-branches=70 --test-coverage-functions=85 --test tests/*.test.ts",
     "check": "npm run typecheck && npm run test:coverage",
     "validate:worker": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
     "db:migrate:local": "wrangler d1 migrations apply radar-news --local",

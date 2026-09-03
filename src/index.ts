@@ -80,6 +80,8 @@ interface SourceRunResult {
   error?: string;
 }
 
+class DeliveryLeaseLostError extends Error {}
+
 const ANALYSIS_CATEGORIES = [
   "Atualização",
   "Evento",
@@ -247,30 +249,14 @@ async function runMonitor(env: Env): Promise<Record<string, unknown>> {
 }
 
 async function collectSource(source: SourceDefinition): Promise<NewsItem[]> {
-  const response = await fetch(source.archiveUrl, {
-    headers: {
-      Accept:
-        source.kind === "brawl-youtube"
-          ? "application/atom+xml,application/xml,text/xml"
-          : "text/html,application/xhtml+xml",
-      "User-Agent": USER_AGENT,
-    },
-    redirect: "follow",
-    signal: AbortSignal.timeout(SOURCE_FETCH_TIMEOUT_MS),
-  });
+  const expectedHostname =
+    source.kind === "brawl-youtube" ? "www.youtube.com" : "supercell.com";
+  const response = await fetchSourceWithSafeRedirects(source, expectedHostname);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
   const contentType = response.headers.get("Content-Type") ?? "";
   const finalUrl = new URL(response.url);
-  const expectedHostname =
-    source.kind === "brawl-youtube" ? "www.youtube.com" : "supercell.com";
-  if (
-    finalUrl.protocol !== "https:" ||
-    finalUrl.hostname !== expectedHostname ||
-    (finalUrl.port !== "" && finalUrl.port !== "443") ||
-    finalUrl.username !== "" ||
-    finalUrl.password !== ""
-  ) {
+  if (!isAllowedSourceUrl(finalUrl, expectedHostname)) {
     throw new Error("A fonte redirecionou para um domínio não autorizado");
   }
   const normalizedContentType = contentType.toLowerCase();
@@ -300,6 +286,51 @@ async function collectSource(source: SourceDefinition): Promise<NewsItem[]> {
       publishedAt: item.publishedAt,
       analysisRequired: source.processing === "analysis",
     })),
+  );
+}
+
+async function fetchSourceWithSafeRedirects(
+  source: SourceDefinition,
+  expectedHostname: string,
+): Promise<Response> {
+  let currentUrl = new URL(source.archiveUrl);
+  const redirectStatuses = new Set([301, 302, 303, 307, 308]);
+  const signal = AbortSignal.timeout(SOURCE_FETCH_TIMEOUT_MS);
+
+  for (let redirects = 0; redirects <= 5; redirects += 1) {
+    if (!isAllowedSourceUrl(currentUrl, expectedHostname)) {
+      throw new Error("A fonte redirecionou para um domínio não autorizado");
+    }
+    const response = await fetch(currentUrl.href, {
+      headers: {
+        Accept:
+          source.kind === "brawl-youtube"
+            ? "application/atom+xml,application/xml,text/xml"
+            : "text/html,application/xhtml+xml",
+        "User-Agent": USER_AGENT,
+      },
+      redirect: "manual",
+      signal,
+    });
+    if (!redirectStatuses.has(response.status)) return response;
+    if (response.body) await response.body.cancel();
+    if (redirects === 5) throw new Error("A fonte excedeu o limite de redirecionamentos");
+
+    const location = response.headers.get("Location");
+    if (!location) throw new Error("A fonte redirecionou sem informar o destino");
+    currentUrl = new URL(location, currentUrl);
+  }
+
+  throw new Error("A fonte excedeu o limite de redirecionamentos");
+}
+
+function isAllowedSourceUrl(url: URL, expectedHostname: string): boolean {
+  return (
+    url.protocol === "https:" &&
+    url.hostname === expectedHostname &&
+    (url.port === "" || url.port === "443") &&
+    url.username === "" &&
+    url.password === ""
   );
 }
 
@@ -406,6 +437,18 @@ async function deliverPendingAlerts(
     if ((claimed.meta.changes ?? 0) === 0) continue;
 
     try {
+      const attemptAt = new Date().toISOString();
+      const renewed = await env.DB.prepare(
+        `UPDATE items
+         SET alert_claim_expires_at = ?1
+         WHERE id = ?2 AND alert_claim_token = ?3
+           AND alert_claim_expires_at IS NOT NULL AND alert_claim_expires_at >= ?4`,
+      )
+        .bind(deliveryLeaseExpiration(), item.id, claimToken, attemptAt)
+        .run();
+      if ((renewed.meta.changes ?? 0) === 0) {
+        throw new DeliveryLeaseLostError("A reserva do alerta mudou antes do envio");
+      }
       const messageId = await sendTelegram(
         env,
         [
@@ -422,28 +465,35 @@ async function deliverPendingAlerts(
           `Referência: ${item.id.slice(0, 12)}`,
         ].join("\n"),
       );
-      await env.DB.prepare(
+      const sentAt = new Date().toISOString();
+      const finalized = await env.DB.prepare(
         `UPDATE items
          SET alert_sent_at = ?1, alert_error = NULL,
              alert_claim_token = NULL, alert_claim_expires_at = NULL,
              alert_message_id = ?4
-         WHERE id = ?2 AND alert_claim_token = ?3`,
+         WHERE id = ?2 AND alert_claim_token = ?3
+           AND alert_claim_expires_at IS NOT NULL AND alert_claim_expires_at >= ?5`,
       )
-        .bind(new Date().toISOString(), item.id, claimToken, messageId)
+        .bind(sentAt, item.id, claimToken, messageId, sentAt)
         .run();
+      if ((finalized.meta.changes ?? 0) === 0) {
+        throw new DeliveryLeaseLostError("A reserva do alerta mudou após o envio");
+      }
       sent += 1;
     } catch (error) {
       failed += 1;
       const message = errorMessage(error).slice(0, 500);
       console.error(`Falha no alerta do item ${item.id}: ${message}`);
-      await env.DB.prepare(
-        `UPDATE items
-         SET alert_error = ?1, alert_claim_token = NULL,
-             alert_claim_expires_at = NULL
-         WHERE id = ?2 AND alert_claim_token = ?3`,
-      )
-        .bind(message, item.id, claimToken)
-        .run();
+      if (!(error instanceof DeliveryLeaseLostError)) {
+        await env.DB.prepare(
+          `UPDATE items
+           SET alert_error = ?1, alert_claim_token = NULL,
+               alert_claim_expires_at = NULL
+           WHERE id = ?2 AND alert_claim_token = ?3`,
+        )
+          .bind(message, item.id, claimToken)
+          .run();
+      }
     }
   }
   return { sent, failed };
@@ -798,28 +848,47 @@ async function deliverReadyItem(
   try {
     const analysis = parseAnalysis(JSON.parse(item.analysis_json), true);
     if (!analysis) throw new Error("Análise armazenada em formato inválido");
+    const attemptAt = new Date().toISOString();
+    const renewed = await env.DB.prepare(
+      `UPDATE items
+       SET analysis_claim_expires_at = ?1
+       WHERE id = ?2 AND status = 'ready' AND analysis_claim_token = ?3
+         AND analysis_claim_expires_at IS NOT NULL AND analysis_claim_expires_at >= ?4`,
+    )
+      .bind(deliveryLeaseExpiration(), itemId, claimToken, attemptAt)
+      .run();
+    if ((renewed.meta.changes ?? 0) === 0) {
+      throw new DeliveryLeaseLostError("A reserva da pauta mudou antes do envio");
+    }
     const messageId = await sendTelegram(env, formatAnalysisMessage(item, analysis));
-    await env.DB.prepare(
+    const sentAt = new Date().toISOString();
+    const finalized = await env.DB.prepare(
       `UPDATE items
        SET status = 'processed', processed_at = ?1, last_error = NULL,
            analysis_claim_token = NULL, analysis_claim_expires_at = NULL,
            analysis_message_id = ?4
-       WHERE id = ?2 AND status = 'ready' AND analysis_claim_token = ?3`,
+       WHERE id = ?2 AND status = 'ready' AND analysis_claim_token = ?3
+         AND analysis_claim_expires_at IS NOT NULL AND analysis_claim_expires_at >= ?5`,
     )
-      .bind(new Date().toISOString(), itemId, claimToken, messageId)
+      .bind(sentAt, itemId, claimToken, messageId, sentAt)
       .run();
+    if ((finalized.meta.changes ?? 0) === 0) {
+      throw new DeliveryLeaseLostError("A reserva da pauta mudou após o envio");
+    }
     return "sent";
   } catch (error) {
     const message = errorMessage(error).slice(0, 500);
     console.error(`Falha ao entregar pauta ${itemId}: ${message}`);
-    await env.DB.prepare(
-      `UPDATE items
-       SET last_error = ?1, analysis_claim_token = NULL,
-           analysis_claim_expires_at = NULL
-       WHERE id = ?2 AND status = 'ready' AND analysis_claim_token = ?3`,
-    )
-      .bind(message, itemId, claimToken)
-      .run();
+    if (!(error instanceof DeliveryLeaseLostError)) {
+      await env.DB.prepare(
+        `UPDATE items
+         SET last_error = ?1, analysis_claim_token = NULL,
+             analysis_claim_expires_at = NULL
+         WHERE id = ?2 AND status = 'ready' AND analysis_claim_token = ?3`,
+      )
+        .bind(message, itemId, claimToken)
+        .run();
+    }
     return "failed";
   }
 }
@@ -1076,14 +1145,43 @@ async function readJsonBody(
   const length = Number(request.headers.get("Content-Length") ?? "0");
   if (Number.isFinite(length) && length > 30_000) return null;
   try {
-    const raw = await request.text();
-    if (raw.length > 30_000) return null;
+    const raw = await readRequestTextWithLimit(request, 30_000);
+    if (raw === null) return null;
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     return value as Record<string, unknown>;
   } catch {
     return null;
   }
+}
+
+async function readRequestTextWithLimit(
+  request: Request,
+  maxBytes: number,
+): Promise<string | null> {
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const part = await reader.read();
+    if (part.done) break;
+    total += part.value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel("Corpo maior que o limite permitido");
+      return null;
+    }
+    chunks.push(part.value);
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
 async function isAuthorized(request: Request, secret?: string): Promise<boolean> {
