@@ -173,10 +173,24 @@ def process_once(
                     token=secret,
                     payload={"claimToken": claim_token, "analysis": analysis},
                 )
-                if delivery.get("deliveryPending"):
+                delivered = delivery.get("delivered")
+                delivery_pending = delivery.get("deliveryPending")
+                if (
+                    delivery.get("ok") is True
+                    and delivery_pending is True
+                    and delivered is False
+                ):
                     print("Pauta salva; o Telegram será tentado novamente pelo Worker.")
-                else:
+                elif (
+                    delivery.get("ok") is True
+                    and delivered is True
+                    and (delivery_pending is None or delivery_pending is False)
+                ):
                     print("Pauta enviada ao Telegram.")
+                else:
+                    raise RadarError(
+                        "O Worker não confirmou a conclusão nem o reagendamento da pauta."
+                    )
             processed += 1
         # Qualquer falha devolve o item à fila para uma nova tentativa.
         except Exception as error:
