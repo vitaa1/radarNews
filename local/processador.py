@@ -120,7 +120,7 @@ def process_once(
         )
         claim_token = result.get("claimToken")
         items = result.get("items")
-        editorial_history = normalize_editorial_history(result.get("editorialHistory"))
+        editorial_history = result.get("editorialHistory")
         if not isinstance(claim_token, str) or not isinstance(items, list):
             raise RadarError("O Worker devolveu uma reserva em formato inesperado.")
         if len(items) > 1:

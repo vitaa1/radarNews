@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 import unittest
@@ -51,6 +52,71 @@ def run_once(*, dry_run: bool = False) -> tuple[int, int]:
 
 
 class ProcessorFlowTests(unittest.TestCase):
+    def test_historico_da_reserva_chega_ao_prompt_do_ollama(self) -> None:
+        history = [
+            {
+                "title": "Vídeo anterior",
+                "classification": "Evento",
+                "angle": "Explicar o efeito para jogadores casuais.",
+            }
+        ]
+        with (
+            patch(
+                "local.processador.request_json",
+                side_effect=[
+                    claim_result(editorialHistory=history),
+                    {"ok": True, "delivered": True},
+                ],
+            ),
+            patch("local.processador.download_article", return_value="Texto oficial"),
+            patch(
+                "local.processador.call_ollama", return_value={"resumo": "ok"}
+            ) as ollama,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = run_once()
+
+        self.assertEqual(result, (1, 0))
+        messages = ollama.call_args.args[2]
+        prompt = messages[1]["content"]
+        self.assertIn("ÂNGULOS RECENTES", prompt)
+        serialized_history = json.dumps(
+            [
+                {
+                    "titulo": "Vídeo anterior",
+                    "classificacao": "Evento",
+                    "angulo": "Explicar o efeito para jogadores casuais.",
+                }
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        self.assertIn(serialized_history, prompt)
+
+    def test_historico_invalido_nao_impede_processamento(self) -> None:
+        for history in (None, "inválido", {"title": "inválido"}, [None, {}]):
+            with (
+                self.subTest(history=history),
+                patch(
+                    "local.processador.request_json",
+                    side_effect=[
+                        claim_result(editorialHistory=history),
+                        {"ok": True, "delivered": True},
+                    ],
+                ),
+                patch(
+                    "local.processador.download_article", return_value="Texto oficial"
+                ),
+                patch(
+                    "local.processador.call_ollama", return_value={"resumo": "ok"}
+                ) as ollama,
+                redirect_stdout(io.StringIO()),
+            ):
+                result = run_once()
+
+            self.assertEqual(result, (1, 0))
+            self.assertNotIn("ÂNGULOS RECENTES", ollama.call_args.args[2][1]["content"])
+
     def test_fila_vazia_encerra_sem_falha(self) -> None:
         output = io.StringIO()
         with (
