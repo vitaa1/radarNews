@@ -341,6 +341,10 @@ npx wrangler deploy --dry-run
 
 ## Solução de problemas
 
+### `Configuração inválida` ao iniciar o processador
+
+O processador encerra com código `2` antes de consultar a fila quando detecta uma configuração inválida. Confira o nome da variável ou do arquivo indicado na mensagem. Para `.env` e perfil editorial, verifique as permissões de leitura e salve o arquivo como UTF-8; para URLs, confira o endereço e a porta. O `.env` e o perfil são opcionais, mas arquivos presentes precisam ser legíveis. As variáveis já definidas no ambiente continuam tendo prioridade sobre o `.env`.
+
 ### `Não autorizado` ou HTTP 401
 
 O `SHARED_SECRET` de `local/.env` precisa ser exatamente o mesmo cadastrado com `wrangler secret put SHARED_SECRET`. Cadastre novamente se houver dúvida e faça novo deploy.
