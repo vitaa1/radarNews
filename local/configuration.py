@@ -13,13 +13,24 @@ else:
     from errors import RadarError
 
 
+def _read_optional_text(path: Path) -> str | None:
+    """Lê configuração UTF-8 opcional e traduz falhas de leitura para o domínio."""
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError) as error:
+        raise RadarError(
+            f"Não foi possível ler {path.name}. Verifique as permissões e a codificação UTF-8."
+        ) from error
+
+
 def load_dotenv(path: Path) -> None:
     """Carrega um .env simples sem substituir variáveis já definidas no sistema."""
-    if not path.exists():
+    content = _read_optional_text(path)
+    if content is None:
         return
-    for line_number, raw_line in enumerate(
-        path.read_text(encoding="utf-8-sig").splitlines(), start=1
-    ):
+    for line_number, raw_line in enumerate(content.splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -34,11 +45,12 @@ def load_dotenv(path: Path) -> None:
 
 def load_channel_profile(path: Path) -> dict[str, Any] | None:
     """Carrega preferências editoriais opcionais em um formato previsível."""
-    if not path.exists():
+    content = _read_optional_text(path)
+    if content is None:
         return None
     try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError) as error:
+        value = json.loads(content)
+    except json.JSONDecodeError as error:
         raise RadarError(
             f"O perfil editorial em {path.name} não é um JSON válido."
         ) from error
@@ -90,8 +102,13 @@ def positive_int_env(name: str, default: int, minimum: int, maximum: int) -> int
 def validate_configuration(
     worker_url: str, secret: str, ollama_url: str, model: str
 ) -> None:
-    parsed_worker = urllib.parse.urlsplit(worker_url)
-    parsed_ollama = urllib.parse.urlsplit(ollama_url)
+    try:
+        parsed_worker = urllib.parse.urlsplit(worker_url)
+        parsed_ollama = urllib.parse.urlsplit(ollama_url)
+    except ValueError as error:
+        raise RadarError(
+            "WORKER_URL ou OLLAMA_URL contém uma URL malformada."
+        ) from error
     if (
         parsed_worker.scheme != "https"
         or not parsed_worker.hostname
@@ -115,7 +132,7 @@ def validate_configuration(
         raise RadarError("WORKER_URL deve usar a porta HTTPS padrão 443.")
     if (
         parsed_ollama.scheme not in {"http", "https"}
-        or not parsed_ollama.netloc
+        or not parsed_ollama.hostname
         or parsed_ollama.username is not None
         or parsed_ollama.password is not None
         or parsed_ollama.query
