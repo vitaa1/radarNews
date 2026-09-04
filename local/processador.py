@@ -178,7 +178,7 @@ def process_once(
                 if (
                     delivery.get("ok") is True
                     and delivery_pending is True
-                    and (delivered is None or delivered is False)
+                    and delivered is False
                 ):
                     print("Pauta salva; o Telegram será tentado novamente pelo Worker.")
                 elif (

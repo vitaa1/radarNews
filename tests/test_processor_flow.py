@@ -151,6 +151,8 @@ class ProcessorFlowTests(unittest.TestCase):
     def test_resposta_ambigua_na_conclusao_e_tratada_como_falha(self) -> None:
         invalid_deliveries = (
             {"ok": True},
+            {"ok": True, "deliveryPending": True},
+            {"ok": True, "delivered": None, "deliveryPending": True},
             {"ok": False, "delivered": True},
             {"ok": False, "deliveryPending": True},
             {"ok": True, "delivered": False, "deliveryPending": False},
