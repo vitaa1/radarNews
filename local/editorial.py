@@ -88,9 +88,10 @@ def build_messages(
     item: dict[str, Any],
     article: str,
     channel_profile: dict[str, Any] | None = None,
-    editorial_history: list[dict[str, str]] | None = None,
+    editorial_history: Any = None,
     performance_context: str = "",
 ) -> list[dict[str, str]]:
+    """Monta o prompt e normaliza o histórico bruto recebido do Worker uma só vez."""
     system = (
         "Você é um estrategista editorial brasileiro de um canal de Brawl Stars. "
         "Transforme anúncios oficiais em explicações úteis, implicações práticas e "
