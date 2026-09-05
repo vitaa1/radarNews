@@ -306,6 +306,8 @@ Informe a URL pública, o título usado, o formato e as métricas que já estive
 4. anotar uma observação curta, como `gancho direto, mas thumbnail pouco legível`;
 5. manter `python local\processador.py` em execução normalmente. O diário é relido a cada consulta e passa a orientar as próximas pautas.
 
+Visualizações e inscritos ganhos aceitam somente contagens inteiras não negativas, dentro do limite de armazenamento do SQLite. Valores inválidos são recusados antes da gravação, preservando o registro anterior. Zero substitui a contagem anterior; um campo em branco preserva a métrica já registrada.
+
 Para visualizar o resumo que será fornecido ao Ollama:
 
 ```powershell

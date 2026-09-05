@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import io
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from local.desempenho import (
     build_performance_context,
     get_result,
+    interactive_result,
+    main,
     normalize_youtube_url,
+    optional_int,
     save_result,
     validate_result,
 )
@@ -33,6 +40,115 @@ def valid_result(**overrides: object) -> dict[str, object]:
 
 
 class DesempenhoTests(unittest.TestCase):
+    def test_contadores_invalidos_sao_recusados_antes_de_abrir_banco(self) -> None:
+        for field in ("views_48h", "views_7d", "subscribers_gained"):
+            for value in (
+                True,
+                False,
+                1.0,
+                1.5,
+                float("inf"),
+                float("nan"),
+                2**63,
+                str(2**63),
+            ):
+                with (
+                    self.subTest(field=field, value=value),
+                    patch("local.desempenho.connect_database") as connect,
+                    self.assertRaises(ValueError),
+                ):
+                    save_result(valid_result(**{field: value}))
+                connect.assert_not_called()
+
+    def test_contador_opcional_preserva_vazio_zero_e_limite_sqlite(self) -> None:
+        for value, expected in (
+            (None, None),
+            ("", None),
+            (0, 0),
+            (" 0 ", 0),
+            (42, 42),
+            ("42", 42),
+            (2**63 - 1, 2**63 - 1),
+            (str(2**63 - 1), 2**63 - 1),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(optional_int(value, "Views"), expected)
+
+    def test_contador_rejeita_negativos_fracoes_e_tipos_incompativeis(self) -> None:
+        for value in (-1, "-1", "1.5", "1,5", "inválido", [], {}, b"42"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                optional_int(value, "Views")
+
+    def test_limite_sqlite_e_zero_sao_persistidos_sem_perder_precisao(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "desempenho.db"
+            save_result(
+                valid_result(
+                    views_48h=2**63 - 1, views_7d=str(2**63 - 1), subscribers_gained=0
+                ),
+                path,
+            )
+            stored = get_result(valid_result()["youtube_url"], path)
+        self.assertEqual(stored["views_48h"], 2**63 - 1)
+        self.assertEqual(stored["views_7d"], 2**63 - 1)
+        self.assertEqual(stored["subscribers_gained"], 0)
+
+    def test_atualizacao_invalida_preserva_registro_existente(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "desempenho.db"
+            initial = valid_result()
+            save_result(initial, path)
+            before = get_result(initial["youtube_url"], path)
+            with self.assertRaises(ValueError):
+                save_result(
+                    valid_result(title="Título alterado", views_7d=str(2**63)), path
+                )
+            after = get_result(initial["youtube_url"], path)
+        self.assertEqual(after, before)
+
+    def test_atualizacao_com_zero_substitui_valor_anterior(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "desempenho.db"
+            save_result(valid_result(), path)
+            save_result(valid_result(views_48h=0, subscribers_gained="0"), path)
+            stored = get_result(valid_result()["youtube_url"], path)
+        self.assertEqual(stored["views_48h"], 0)
+        self.assertEqual(stored["subscribers_gained"], 0)
+
+    def test_cli_rejeita_contador_excessivo_sem_criar_banco(self) -> None:
+        answers = [
+            "https://youtu.be/dQw4w9WgXcQ",
+            "Título de teste",
+            "Short",
+            "Equilibrado",
+            "2026-08-30",
+            str(2**63),
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "desempenho.db"
+            output = io.StringIO()
+            with (
+                patch.object(sys, "argv", ["desempenho.py", "registrar"]),
+                patch("builtins.input", side_effect=answers),
+                patch(
+                    "local.desempenho.interactive_result",
+                    side_effect=lambda: interactive_result(path),
+                ),
+                redirect_stdout(output),
+            ):
+                result = main()
+            self.assertFalse(path.exists())
+        self.assertEqual(result, 1)
+        self.assertIn("Views em 48h não pode exceder", output.getvalue())
+        self.assertNotIn("Resultado salvo", output.getvalue())
+        self.assertNotIn("Traceback", output.getvalue())
+
     def test_normaliza_formatos_publicos_do_mesmo_video(self) -> None:
         expected = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         self.assertEqual(
