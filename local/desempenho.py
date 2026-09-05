@@ -11,6 +11,8 @@ from urllib.parse import parse_qs, urlsplit
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = BASE_DIR / "desempenho.db"
+# As colunas INTEGER do SQLite armazenam inteiros assinados de 64 bits.
+MAX_COUNTER_VALUE = (1 << 63) - 1
 FORMATS = ("Short", "Vídeo")
 TITLE_STYLES = ("Pesquisável", "Intrigante", "Equilibrado", "Outro")
 YOUTUBE_HOSTS = frozenset(
@@ -84,12 +86,16 @@ def normalize_youtube_url(value: str) -> str:
 def optional_int(value: Any, field: str) -> int | None:
     if value is None or value == "":
         return None
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError(f"{field} deve ser um número inteiro.")
     try:
         result = int(value)
     except (TypeError, ValueError) as error:
         raise ValueError(f"{field} deve ser um número inteiro.") from error
     if result < 0:
         raise ValueError(f"{field} não pode ser negativo.")
+    if result > MAX_COUNTER_VALUE:
+        raise ValueError(f"{field} não pode exceder {MAX_COUNTER_VALUE}.")
     return result
 
 
