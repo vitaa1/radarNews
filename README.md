@@ -402,7 +402,9 @@ $payload = @{ kind = "alert" } | ConvertTo-Json
 Invoke-RestMethod -Method Post -Uri "$workerUrl/api/items/$itemId/retry-delivery" -Headers $headers -ContentType "application/json" -Body $payload
 ```
 
-Use `kind = "analysis"` para uma pauta. A operação exige autenticação e uma entrega em quarentena; ela não regenera a análise, não muda o estado de processamento e não reenvia uma mensagem já confirmada. Uma análise armazenada inválida precisa ser corrigida antes do reenvio.
+Use `kind = "analysis"` para uma pauta. A operação exige autenticação e uma entrega em quarentena; ela não regenera a análise, não muda o estado de processamento e não reenvia uma mensagem já confirmada.
+
+Se a análise armazenada estiver inválida, use `POST /api/items/:id/retry` (o mesmo comando da seção anterior). Para uma pauta em quarentena, essa operação descarta a análise inválida e a devolve ao processador Python para nova geração. O alerta já enviado é preservado. A operação recusa pautas com reserva de entrega ativa e itens que geram somente notificação.
 
 Ao atualizar uma instalação, aplique `npm run db:migrate:remote` antes do deploy: a migração `0005_delivery_recovery.sql` adiciona os campos e índices de recuperação, preservando itens e mensagens já registrados.
 
@@ -457,7 +459,7 @@ O Worker não cria uma linha de base vazia. Isso é intencional: se o HTML ofici
 | `POST` | `/api/items/claim` | reserva pautas para o processador |
 | `POST` | `/api/items/:id/complete` | salva e entrega uma pauta |
 | `POST` | `/api/items/:id/release` | devolve uma pauta com falha à fila |
-| `POST` | `/api/items/:id/retry` | recoloca manualmente um item da fila de falhas |
+| `POST` | `/api/items/:id/retry` | reprocessa uma pauta da fila de falhas ou da quarentena de entrega |
 | `POST` | `/api/items/:id/retry-delivery` | retira um alerta ou uma pauta da quarentena de entrega |
 
 Todas as rotas `/api/*` exigem o `SHARED_SECRET`.

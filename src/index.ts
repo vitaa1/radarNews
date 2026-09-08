@@ -704,13 +704,20 @@ async function retryItem(env: Env, itemId: string): Promise<Response> {
     `UPDATE items
      SET status = 'pending', retry_count = 0, last_error = NULL,
          next_retry_at = NULL, dead_lettered_at = NULL,
-         claim_token = NULL, claim_expires_at = NULL
-     WHERE id = ?1 AND dead_lettered_at IS NOT NULL`,
+         claim_token = NULL, claim_expires_at = NULL,
+         analysis_json = NULL, analysis_ready_at = NULL,
+         analysis_failure_count = 0, analysis_next_retry_at = NULL,
+         analysis_dead_lettered_at = NULL,
+         analysis_claim_token = NULL, analysis_claim_expires_at = NULL
+     WHERE id = ?1 AND analysis_required = 1
+       AND (dead_lettered_at IS NOT NULL
+         OR (status = 'ready' AND analysis_dead_lettered_at IS NOT NULL))
+       AND (analysis_claim_token IS NULL OR analysis_claim_expires_at < ?2)`,
   )
-    .bind(itemId)
+    .bind(itemId, new Date().toISOString())
     .run();
   if ((result.meta.changes ?? 0) === 0) {
-    return json({ error: "Item não encontrado na fila de falhas" }, 404);
+    return json({ error: "Pauta não encontrada na fila de falhas/quarentena ou ainda reservada" }, 404);
   }
   return json({ ok: true, id: itemId, queued: true });
 }

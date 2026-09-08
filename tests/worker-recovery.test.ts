@@ -259,3 +259,34 @@ test("redirecionamento do Telegram não encaminha a pauta nem amplia os fetches"
   assert.equal(s.row(id).alert_failure_count, 1);
   assert.equal(s.row(id).alert_error, "Telegram HTTP 302");
 });
+
+test("análise inválida pode ser regenerada pela API sem reenviar o alerta", async (t) => {
+  const s = setup(t); s.baselines();
+  const id = s.seed(0, "ready", true, "{inválido");
+  await s.request("/api/run");
+  assert.equal(s.row(id).analysis_dead_lettered_at, NOW);
+  assert.equal((await s.request(`/api/items/${id}/retry`)).status, 200);
+  assert.equal(s.row(id).analysis_json, null);
+  assert.equal(s.row(id).alert_sent_at, NOW);
+  assert.equal(s.row(id).status, "pending");
+  const claim = await (await s.request("/api/items/claim")).json() as { claimToken: string; items: Array<{ id: string }> };
+  assert.equal(claim.items[0]?.id, id);
+  const complete = await s.request(`/api/items/${id}/complete`, { claimToken: claim.claimToken, analysis: ANALYSIS });
+  assert.equal(complete.status, 200);
+  assert.equal(s.row(id).status, "processed");
+  await s.request("/api/run");
+  assert.equal(s.network.messages.filter((message) => message.includes("Pauta criada")).length, 1);
+  assert.equal(s.row(id).alert_attempt_count, 0);
+});
+
+test("regeneração recusa notificação, pauta fora de quarentena e lease ativo", async (t) => {
+  const s = setup(t);
+  const id = s.seed(0, "ready", true);
+  const retry = () => s.request(`/api/items/${id}/retry`);
+  assert.equal((await retry()).status, 404);
+  s.database.sqlite.prepare("UPDATE items SET analysis_dead_lettered_at=?,analysis_required=0").run(NOW);
+  assert.equal((await retry()).status, 404);
+  s.database.sqlite.prepare("UPDATE items SET analysis_required=1,analysis_claim_token='ocupado',analysis_claim_expires_at=?").run("2026-09-05T13:00:00.000Z");
+  assert.equal((await retry()).status, 404);
+  assert.equal(s.row(id).analysis_json, JSON.stringify(ANALYSIS));
+});
