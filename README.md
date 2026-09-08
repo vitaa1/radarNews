@@ -330,6 +330,8 @@ powershell -ExecutionPolicy Bypass -File scripts\validar.ps1
 
 Se o Python estiver instalado mas não estiver no `PATH`, informe o executável com `-PythonPath C:\caminho\python.exe`.
 
+O validador também executa a suíte permanente de integração e E2E, disponível separadamente como `npm run test:e2e`. Ela usa o runtime real do Worker, D1 local e a CLI Python, com serviços externos simulados, sem carregar a configuração pessoal nem enviar mensagens reais. Veja os [cenários e limites da suíte](tests/e2e/README.md). O CI inclui essa validação em Windows e Linux.
+
 Também é possível executar cada verificação separadamente:
 
 ```powershell
