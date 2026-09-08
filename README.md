@@ -19,7 +19,9 @@ Instagram, X, TikTok e Facebook não são coletados diretamente: essas plataform
 3. Uma publicação nova gera um alerta simples no Telegram.
 4. Para artigos da Supercell, o processador Python, enquanto seu computador estiver ligado, reserva uma pauta pendente, recebe até oito ângulos editoriais recentes e abre apenas a URL oficial recebida. Vídeos do YouTube geram somente alerta, pois o sistema não inventa uma pauta sem transcrição oficial verificável.
 5. O Ollama combina a fonte com o perfil local do canal e, quando existirem, resultados anteriores informados pelo criador. Ele produz resumo, público-alvo, ângulo diferenciado, gancho de abertura, três estilos de título, conceito de thumbnail, estratégia de retenção, experimento de crescimento e roteiro curto em português.
-6. O Python devolve a pauta ao Worker, que a salva e a envia ao Telegram. Se o Telegram falhar, o Worker tenta novamente no próximo ciclo. Falhas de processamento usam espera progressiva e, após cinco tentativas, vão para uma fila de falhas.
+6. O Python devolve a pauta ao Worker, que a salva e a envia ao Telegram. Se o Telegram falhar, o Worker agenda novas tentativas ou coloca a entrega em quarentena, conforme o erro. Falhas de processamento usam espera progressiva e, após cinco tentativas, vão para uma fila de falhas.
+
+A coleta grava os links de cada fonte em uma única consulta D1, inclusive na criação da linha de base. Cada ciclo tenta entregar no máximo um alerta e uma pauta; o restante aguarda os próximos ciclos. Esse limite reserva margem para redirecionamentos e falhas de persistência dentro do orçamento do plano gratuito. A conclusão enviada pelo Python também pode entregar a própria pauta imediatamente. A limpeza de reservas de processamento expiradas trata até 20 itens por chamada, preservando o orçamento quando houver backlog.
 
 Na primeira consulta de **cada fonte**, as publicações atuais viram uma linha de base e não geram alertas antigos. Só o que aparecer depois será tratado como novidade.
 
@@ -357,6 +359,8 @@ Para gerar uma chave nova, cadastrar exatamente o mesmo valor no Worker, salvar 
 .\scripts\sincronizar-shared-secret.ps1
 ```
 
+A sincronização usa um temporário com nome exclusivo, protegido pelo `.gitignore`, e tenta removê-lo ao encerrar, inclusive quando a escrita ou a atualização falha. Uma interrupção forçada pode deixar esse arquivo no disco; ele continua ignorado pelo Git e deve ser tratado como configuração privada.
+
 O script usa a `WORKER_URL` já salva em `local/.env`. Para apontar explicitamente para outra implantação, use `-WorkerUrl https://seu-worker.workers.dev`; a URL não fica mais fixa dentro do script.
 
 ### Nenhuma mensagem chega ao Telegram
@@ -384,6 +388,23 @@ $headers = @{ Authorization = "Bearer $sharedSecret" }
 $itemId = "cole_o_id_de_64_caracteres"
 Invoke-RestMethod -Method Post -Uri "$workerUrl/api/items/$itemId/retry" -Headers $headers
 ```
+
+### Entrega ao Telegram em espera ou quarentena
+
+As falhas de entrega têm contadores próprios, separados das falhas de geração da pauta. As retentativas aguardam 5, 15, 60 e 240 minutos; um HTTP 429 respeita também o `retry_after` informado pelo Telegram, limitado a sete dias. Após cinco falhas, a entrega entra em quarentena. HTTP 400/404 e análises armazenadas inválidas entram em quarentena imediatamente. Assim, uma entrega problemática deixa de ocupar os lotes seguintes.
+
+Em `/api/status`, `deliveries.alert_quarantined` e `deliveries.analysis_quarantined` mostram os totais. A lista `failedItems` inclui os campos `alert_dead_lettered_at` e `analysis_dead_lettered_at` para identificar a entrega afetada.
+
+Depois de corrigir a causa, recoloque apenas o tipo de entrega afetado na fila:
+
+```powershell
+$payload = @{ kind = "alert" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "$workerUrl/api/items/$itemId/retry-delivery" -Headers $headers -ContentType "application/json" -Body $payload
+```
+
+Use `kind = "analysis"` para uma pauta. A operação exige autenticação e uma entrega em quarentena; ela não regenera a análise, não muda o estado de processamento e não reenvia uma mensagem já confirmada. Uma análise armazenada inválida precisa ser corrigida antes do reenvio.
+
+Ao atualizar uma instalação, aplique `npm run db:migrate:remote` antes do deploy: a migração `0005_delivery_recovery.sql` adiciona os campos e índices de recuperação, preservando itens e mensagens já registrados.
 
 ### `ollama` não é reconhecido
 
@@ -437,5 +458,6 @@ O Worker não cria uma linha de base vazia. Isso é intencional: se o HTML ofici
 | `POST` | `/api/items/:id/complete` | salva e entrega uma pauta |
 | `POST` | `/api/items/:id/release` | devolve uma pauta com falha à fila |
 | `POST` | `/api/items/:id/retry` | recoloca manualmente um item da fila de falhas |
+| `POST` | `/api/items/:id/retry-delivery` | retira um alerta ou uma pauta da quarentena de entrega |
 
 Todas as rotas `/api/*` exigem o `SHARED_SECRET`.

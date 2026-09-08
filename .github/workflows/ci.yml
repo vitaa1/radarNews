@@ -15,6 +15,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  powershell:
+    name: Temporarios de configuracao no Windows
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Testar temporarios sem acessar servicos
+        shell: powershell
+        run: .\tests\temporary-config.tests.ps1
+
   worker:
     name: TypeScript and Worker
     runs-on: ubuntu-24.04

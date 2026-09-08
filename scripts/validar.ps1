@@ -12,6 +12,9 @@ $env:WRANGLER_LOG_PATH = $wranglerLogDirectory
 Write-Host "1/6 - Validando TypeScript e testes do coletor..."
 npm run check
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Write-Host "Validando limpeza dos temporarios com servicos simulados..."
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $projectRoot "tests\temporary-config.tests.ps1")
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $pythonArgs = @()
 if ($PythonPath) {

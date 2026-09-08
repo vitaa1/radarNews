@@ -326,7 +326,7 @@ test("monitor cria linha de base para as três fontes oficiais", async (t) => {
   });
   const statements: RecordedStatement[] = [];
   const db = databaseBySql(
-    { changes: (sql) => (sql.includes("INSERT OR IGNORE INTO items") ? 1 : 0) },
+    { changes: (sql, bindings) => (sql.includes("INSERT OR IGNORE INTO items") ? (JSON.parse(String(bindings[0])) as unknown[]).length : 0) },
     statements,
   );
 
@@ -352,11 +352,12 @@ test("monitor cria linha de base para as três fontes oficiais", async (t) => {
   const inserts = statements.filter((statement) =>
     statement.sql.includes("INSERT OR IGNORE INTO items"),
   );
-  assert.equal(inserts.length, 6);
-  assert.ok(inserts.every((statement) => statement.bindings[7] === "ignored"));
+  assert.equal(inserts.length, 3);
+  assert.ok(inserts.every((statement) => statement.bindings[2] === 1));
   assert.deepEqual(
-    inserts.map((statement) => statement.bindings[8]),
-    [1, 1, 1, 1, 0, 0],
+    inserts.flatMap((statement) =>
+      (JSON.parse(String(statement.bindings[0])) as Array<{ analysisRequired: boolean }>).map((item) => item.analysisRequired)),
+    [true, true, true, true, false, false],
   );
 });
 
@@ -386,7 +387,7 @@ test("monitor insere novidades com o estado correto após a linha de base", asyn
   const db = databaseBySql(
     {
       first: (sql) => (sql.includes("SELECT value FROM metadata") ? { value: "ok" } : null),
-      changes: (sql) => (sql.includes("INSERT OR IGNORE INTO items") ? 1 : 0),
+      changes: (sql, bindings) => (sql.includes("INSERT OR IGNORE INTO items") ? (JSON.parse(String(bindings[0])) as unknown[]).length : 0),
     },
     statements,
   );
@@ -410,12 +411,9 @@ test("monitor insere novidades com o estado correto após a linha de base", asyn
   const inserts = statements.filter((statement) =>
     statement.sql.includes("INSERT OR IGNORE INTO items"),
   );
-  assert.deepEqual(
-    inserts.map((statement) => statement.bindings[7]),
-    ["pending", "pending", "pending", "pending", "processed", "processed"],
-  );
-  assert.ok(inserts.slice(0, 4).every((statement) => statement.bindings[9] === null));
-  assert.ok(inserts.slice(4).every((statement) => typeof statement.bindings[9] === "string"));
+  assert.equal(inserts.length, 3);
+  assert.ok(inserts.every((statement) => statement.bindings[2] === 0));
+  assert.ok(inserts.every((statement) => typeof statement.bindings[1] === "string"));
 });
 
 test("monitor isola redirecionamento, MIME e formato inválidos por fonte", async (t) => {
@@ -499,7 +497,7 @@ test("monitor segue redirecionamento relativo dentro do host oficial", async (t)
     return validSourceResponse(url);
   });
   const db = databaseBySql(
-    { changes: (sql) => (sql.includes("INSERT OR IGNORE INTO items") ? 1 : 0) },
+    { changes: (sql, bindings) => (sql.includes("INSERT OR IGNORE INTO items") ? (JSON.parse(String(bindings[0])) as unknown[]).length : 0) },
     [],
   );
 
@@ -979,7 +977,7 @@ test("análise não chama o Telegram quando perde o lease antes do envio", async
   );
 });
 
-test("análise armazenada inválida libera o lease e permanece pronta", async (t) => {
+test("análise armazenada inválida libera o lease e entra em quarentena", async (t) => {
   t.mock.method(console, "error", () => undefined);
   t.mock.method(globalThis, "fetch", async () =>
     new Response("indisponível", { status: 503 }),
@@ -1021,7 +1019,8 @@ test("análise armazenada inválida libera o lease e permanece pronta", async (t
   const released = statements.find((statement) =>
     statement.sql.includes("SET last_error = ?1"),
   );
-  assert.match(String(released?.bindings[0]), /JSON/);
+  assert.match(String(released?.bindings[0]), /formato inválido/);
+  assert.equal(released?.bindings[4], 1);
   assert.match(released?.sql ?? "", /analysis_claim_token = NULL/);
 });
 
@@ -1058,7 +1057,7 @@ test("item pronto ausente libera o lease com erro controlado", async (t) => {
 
   assert.deepEqual(body.analyses, { sent: 0, failed: 1, skipped: 0 });
   const released = statements.find((statement) =>
-    statement.sql.includes("Análise armazenada ausente"),
+    statement.bindings[0] === "Análise armazenada ausente",
   );
   assert.ok(released);
   assert.match(released.sql, /analysis_claim_token = NULL/);
