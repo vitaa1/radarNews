@@ -3,6 +3,10 @@ import {
   CLAIM_MINUTES,
   DELIVERY_LEASE_MINUTES,
   MAX_PROCESSING_RETRIES,
+  MAX_ALERT_DELIVERIES,
+  MAX_ANALYSIS_DELIVERIES,
+  MAX_EXPIRED_CLAIMS,
+  MAX_DELIVERY_FAILURES,
   MAX_CLAIM_ITEMS,
   MAX_SOURCE_HTML_BYTES,
   PROCESSING_RETRY_BACKOFF_MINUTES,
@@ -82,6 +86,17 @@ interface SourceRunResult {
 
 class DeliveryLeaseLostError extends Error {}
 
+class TelegramDeliveryError extends Error {
+  readonly permanent: boolean;
+  readonly retryAfterSeconds: number;
+
+  constructor(message: string, permanent = false, retryAfterSeconds = 0) {
+    super(message);
+    this.permanent = permanent;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 const ANALYSIS_CATEGORIES = [
   "Atualização",
   "Evento",
@@ -136,7 +151,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   }
 
   const itemRoute = url.pathname.match(
-    /^\/api\/items\/([a-f0-9]{64})\/(complete|release|retry)$/,
+    /^\/api\/items\/([a-f0-9]{64})\/(complete|release|retry|retry-delivery)$/,
   );
   if (request.method === "POST" && itemRoute?.[1] && itemRoute[2]) {
     if (itemRoute[2] === "complete") {
@@ -144,6 +159,9 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     }
     if (itemRoute[2] === "retry") {
       return retryItem(env, itemRoute[1]);
+    }
+    if (itemRoute[2] === "retry-delivery") {
+      return retryDelivery(request, env, itemRoute[1]);
     }
     return releaseItem(request, env, itemRoute[1]);
   }
@@ -195,11 +213,9 @@ async function runMonitor(env: Env): Promise<Record<string, unknown>> {
       .first<{ value: string }>();
 
     if (!initialized) {
-      for (const item of result.items) {
-        if (await insertItem(env, item, "ignored")) baselineStored += 1;
-      }
+      baselineStored += await insertItems(env, result.items, true);
       await env.DB.prepare(
-        "INSERT INTO metadata (key, value) VALUES (?1, ?2)",
+        "INSERT OR IGNORE INTO metadata (key, value) VALUES (?1, ?2)",
       )
         .bind(baselineKey, new Date().toISOString())
         .run();
@@ -212,13 +228,8 @@ async function runMonitor(env: Env): Promise<Record<string, unknown>> {
       continue;
     }
 
-    let sourceInserted = 0;
-    for (const item of result.items) {
-      if (await insertItem(env, item, item.analysisRequired ? "pending" : "processed")) {
-        sourceInserted += 1;
-        inserted += 1;
-      }
-    }
+    const sourceInserted = await insertItems(env, result.items, false);
+    inserted += sourceInserted;
     sources.push({
       id: result.source.id,
       ok: true,
@@ -367,32 +378,34 @@ async function readResponseTextWithLimit(
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
-async function insertItem(
+async function insertItems(
   env: Env,
-  item: NewsItem,
-  status: "ignored" | "pending" | "processed",
-): Promise<boolean> {
+  items: NewsItem[],
+  baseline: boolean,
+): Promise<number> {
   const discoveredAt = new Date().toISOString();
   const result = await env.DB.prepare(
     `INSERT OR IGNORE INTO items
       (id, source_id, source_name, title, url, published_at, discovered_at, status,
        analysis_required, processed_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+     SELECT json_extract(value, '$.id'), json_extract(value, '$.sourceId'),
+            json_extract(value, '$.sourceName'), json_extract(value, '$.title'),
+            json_extract(value, '$.url'), json_extract(value, '$.publishedAt'), ?2,
+            CASE WHEN ?3 = 1 THEN 'ignored'
+                 WHEN json_extract(value, '$.analysisRequired') = 1 THEN 'pending'
+                 ELSE 'processed' END,
+            json_extract(value, '$.analysisRequired'),
+            CASE WHEN ?3 = 0 AND json_extract(value, '$.analysisRequired') = 0
+                 THEN ?2 ELSE NULL END
+     FROM json_each(?1)`,
   )
     .bind(
-      item.id,
-      item.sourceId,
-      item.sourceName,
-      item.title,
-      item.url,
-      item.publishedAt,
+      JSON.stringify(items),
       discoveredAt,
-      status,
-      item.analysisRequired ? 1 : 0,
-      status === "processed" ? discoveredAt : null,
+      baseline ? 1 : 0,
     )
     .run();
-  return (result.meta.changes ?? 0) > 0;
+  return result.meta.changes ?? 0;
 }
 
 async function deliverPendingAlerts(
@@ -404,15 +417,17 @@ async function deliverPendingAlerts(
             discovered_at, status, analysis_json, analysis_required
      FROM items
      WHERE status != 'ignored' AND alert_sent_at IS NULL
+       AND alert_dead_lettered_at IS NULL
+       AND (alert_next_retry_at IS NULL OR alert_next_retry_at <= ?1)
        AND (
          alert_claim_token IS NULL
          OR alert_claim_expires_at IS NULL
          OR alert_claim_expires_at < ?1
        )
      ORDER BY discovered_at ASC
-     LIMIT 20`,
+     LIMIT ?2`,
   )
-    .bind(now)
+    .bind(now, MAX_ALERT_DELIVERIES)
     .all<StoredItem>();
 
   let sent = 0;
@@ -426,6 +441,8 @@ async function deliverPendingAlerts(
            alert_attempt_count = alert_attempt_count + 1,
            alert_last_attempt_at = ?4
        WHERE id = ?3 AND status != 'ignored' AND alert_sent_at IS NULL
+         AND alert_dead_lettered_at IS NULL
+         AND (alert_next_retry_at IS NULL OR alert_next_retry_at <= ?4)
          AND (
            alert_claim_token IS NULL
            OR alert_claim_expires_at IS NULL
@@ -469,6 +486,7 @@ async function deliverPendingAlerts(
       const finalized = await env.DB.prepare(
         `UPDATE items
          SET alert_sent_at = ?1, alert_error = NULL,
+             alert_failure_count = 0, alert_next_retry_at = NULL,
              alert_claim_token = NULL, alert_claim_expires_at = NULL,
              alert_message_id = ?4
          WHERE id = ?2 AND alert_claim_token = ?3
@@ -485,14 +503,7 @@ async function deliverPendingAlerts(
       const message = errorMessage(error).slice(0, 500);
       console.error(`Falha no alerta do item ${item.id}: ${message}`);
       if (!(error instanceof DeliveryLeaseLostError)) {
-        await env.DB.prepare(
-          `UPDATE items
-           SET alert_error = ?1, alert_claim_token = NULL,
-               alert_claim_expires_at = NULL
-           WHERE id = ?2 AND alert_claim_token = ?3`,
-        )
-          .bind(message, item.id, claimToken)
-          .run();
+        await recordDeliveryFailure(env, "alert", item.id, claimToken, error);
       }
     }
   }
@@ -693,13 +704,20 @@ async function retryItem(env: Env, itemId: string): Promise<Response> {
     `UPDATE items
      SET status = 'pending', retry_count = 0, last_error = NULL,
          next_retry_at = NULL, dead_lettered_at = NULL,
-         claim_token = NULL, claim_expires_at = NULL
-     WHERE id = ?1 AND dead_lettered_at IS NOT NULL`,
+         claim_token = NULL, claim_expires_at = NULL,
+         analysis_json = NULL, analysis_ready_at = NULL,
+         analysis_failure_count = 0, analysis_next_retry_at = NULL,
+         analysis_dead_lettered_at = NULL,
+         analysis_claim_token = NULL, analysis_claim_expires_at = NULL
+     WHERE id = ?1 AND analysis_required = 1
+       AND (dead_lettered_at IS NOT NULL
+         OR (status = 'ready' AND analysis_dead_lettered_at IS NOT NULL))
+       AND (analysis_claim_token IS NULL OR analysis_claim_expires_at < ?2)`,
   )
-    .bind(itemId)
+    .bind(itemId, new Date().toISOString())
     .run();
   if ((result.meta.changes ?? 0) === 0) {
-    return json({ error: "Item não encontrado na fila de falhas" }, 404);
+    return json({ error: "Pauta não encontrada na fila de falhas/quarentena ou ainda reservada" }, 404);
   }
   return json({ ok: true, id: itemId, queued: true });
 }
@@ -740,9 +758,9 @@ async function expireStaleProcessingClaims(env: Env, now: string): Promise<numbe
      WHERE status = 'processing'
        AND (claim_token IS NULL OR claim_expires_at IS NULL OR claim_expires_at < ?1)
      ORDER BY claim_expires_at ASC
-     LIMIT 50`,
+     LIMIT ?2`,
   )
-    .bind(now)
+    .bind(now, MAX_EXPIRED_CLAIMS)
     .all<{ id: string; claim_token: string | null; retry_count: number }>();
   let expired = 0;
   for (const item of stale.results ?? []) {
@@ -777,15 +795,17 @@ async function deliverReadyAnalyses(
   const rows = await env.DB.prepare(
     `SELECT id FROM items
      WHERE status = 'ready' AND alert_sent_at IS NOT NULL
+       AND analysis_dead_lettered_at IS NULL
+       AND (analysis_next_retry_at IS NULL OR analysis_next_retry_at <= ?1)
        AND (
          analysis_claim_token IS NULL
          OR analysis_claim_expires_at IS NULL
          OR analysis_claim_expires_at < ?1
        )
      ORDER BY analysis_ready_at ASC
-     LIMIT 10`,
+     LIMIT ?2`,
   )
-    .bind(now)
+    .bind(now, MAX_ANALYSIS_DELIVERIES)
     .all<{ id: string }>();
   let sent = 0;
   let failed = 0;
@@ -810,6 +830,8 @@ async function deliverReadyItem(
          analysis_attempt_count = analysis_attempt_count + 1,
          analysis_last_attempt_at = ?4
      WHERE id = ?3 AND status = 'ready' AND alert_sent_at IS NOT NULL
+       AND analysis_dead_lettered_at IS NULL
+       AND (analysis_next_retry_at IS NULL OR analysis_next_retry_at <= ?4)
        AND (
          analysis_claim_token IS NULL
          OR analysis_claim_expires_at IS NULL
@@ -834,20 +856,19 @@ async function deliverReadyItem(
     .bind(itemId, claimToken)
     .first<StoredItem>();
   if (!item?.analysis_json) {
-    await env.DB.prepare(
-      `UPDATE items
-       SET last_error = 'Análise armazenada ausente', analysis_claim_token = NULL,
-           analysis_claim_expires_at = NULL
-       WHERE id = ?1 AND analysis_claim_token = ?2`,
-    )
-      .bind(itemId, claimToken)
-      .run();
+    await recordDeliveryFailure(env, "analysis", itemId, claimToken,
+      new TelegramDeliveryError("Análise armazenada ausente", true));
     return "failed";
   }
 
   try {
-    const analysis = parseAnalysis(JSON.parse(item.analysis_json), true);
-    if (!analysis) throw new Error("Análise armazenada em formato inválido");
+    let analysis: EditorialAnalysis | null;
+    try {
+      analysis = parseAnalysis(JSON.parse(item.analysis_json), true);
+    } catch {
+      analysis = null;
+    }
+    if (!analysis) throw new TelegramDeliveryError("Análise armazenada em formato inválido", true);
     const attemptAt = new Date().toISOString();
     const renewed = await env.DB.prepare(
       `UPDATE items
@@ -865,6 +886,7 @@ async function deliverReadyItem(
     const finalized = await env.DB.prepare(
       `UPDATE items
        SET status = 'processed', processed_at = ?1, last_error = NULL,
+           analysis_failure_count = 0, analysis_next_retry_at = NULL,
            analysis_claim_token = NULL, analysis_claim_expires_at = NULL,
            analysis_message_id = ?4
        WHERE id = ?2 AND status = 'ready' AND analysis_claim_token = ?3
@@ -880,14 +902,7 @@ async function deliverReadyItem(
     const message = errorMessage(error).slice(0, 500);
     console.error(`Falha ao entregar pauta ${itemId}: ${message}`);
     if (!(error instanceof DeliveryLeaseLostError)) {
-      await env.DB.prepare(
-        `UPDATE items
-         SET last_error = ?1, analysis_claim_token = NULL,
-             analysis_claim_expires_at = NULL
-         WHERE id = ?2 AND status = 'ready' AND analysis_claim_token = ?3`,
-      )
-        .bind(message, itemId, claimToken)
-        .run();
+      await recordDeliveryFailure(env, "analysis", itemId, claimToken, error);
     }
     return "failed";
   }
@@ -895,6 +910,52 @@ async function deliverReadyItem(
 
 function deliveryLeaseExpiration(): string {
   return new Date(Date.now() + DELIVERY_LEASE_MINUTES * 60_000).toISOString();
+}
+
+async function recordDeliveryFailure(
+  env: Env, kind: "alert" | "analysis", itemId: string, claimToken: string, error: unknown,
+): Promise<void> {
+  const now = new Date();
+  const retryAfter = error instanceof TelegramDeliveryError ? error.retryAfterSeconds : 0;
+  const permanent = error instanceof TelegramDeliveryError && error.permanent;
+  // Identificadores vêm apenas da união interna; todo dado variável usa bindings.
+  const errorColumn = kind === "alert" ? "alert_error" : "last_error";
+  const exhausted = `${kind}_failure_count + 1 >= ${MAX_DELIVERY_FAILURES} OR ?5 = 1`;
+  await env.DB.prepare(
+    `UPDATE items
+     SET ${errorColumn} = ?1, ${kind}_claim_token = NULL,
+         ${kind}_claim_expires_at = NULL,
+         ${kind}_failure_count = ${kind}_failure_count + 1,
+         ${kind}_dead_lettered_at = CASE WHEN ${exhausted} THEN ?4 ELSE NULL END,
+         ${kind}_next_retry_at = CASE WHEN ${exhausted} THEN NULL ELSE
+           MAX(?6, strftime('%Y-%m-%dT%H:%M:%fZ', ?4,
+             CASE ${kind}_failure_count
+               WHEN 0 THEN '+5 minutes' WHEN 1 THEN '+15 minutes'
+               WHEN 2 THEN '+60 minutes' ELSE '+240 minutes' END)) END
+     WHERE id = ?2 AND ${kind}_claim_token = ?3
+       AND ${kind}_claim_expires_at IS NOT NULL AND ${kind}_claim_expires_at >= ?4`,
+  ).bind(errorMessage(error).slice(0, 500), itemId, claimToken, now.toISOString(),
+    permanent ? 1 : 0, new Date(now.getTime() + retryAfter * 1_000).toISOString()).run();
+}
+
+async function retryDelivery(request: Request, env: Env, itemId: string): Promise<Response> {
+  const payload = await readJsonBody(request);
+  const kind = payload?.kind;
+  if (kind !== "alert" && kind !== "analysis") {
+    return json({ error: "Informe kind: alert ou analysis" }, 400);
+  }
+  const errorColumn = kind === "alert" ? "alert_error" : "last_error";
+  const result = await env.DB.prepare(
+    `UPDATE items SET ${kind}_failure_count = 0, ${kind}_next_retry_at = NULL,
+         ${kind}_dead_lettered_at = NULL, ${errorColumn} = NULL
+     WHERE id = ?1 AND ${kind}_dead_lettered_at IS NOT NULL
+       AND (${kind}_claim_token IS NULL OR ${kind}_claim_expires_at < ?2)
+       AND ${kind === "alert" ? "alert_sent_at IS NULL AND status != 'ignored'" : "status = 'ready'"}`,
+  ).bind(itemId, new Date().toISOString()).run();
+  if ((result.meta.changes ?? 0) === 0) {
+    return json({ error: "Entrega não encontrada na quarentena ou ainda reservada" }, 404);
+  }
+  return json({ ok: true, id: itemId, kind, queued: true });
 }
 
 export function formatAnalysisMessage(item: StoredItem, analysis: EditorialAnalysis): string {
@@ -958,6 +1019,7 @@ async function sendTelegram(env: Env, message: string): Promise<number | null> {
   try {
     response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
+      redirect: "manual",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
@@ -970,14 +1032,25 @@ async function sendTelegram(env: Env, message: string): Promise<number | null> {
     throw new Error("Não foi possível conectar à API do Telegram");
   }
   const raw = await response.text();
-  if (!response.ok) {
-    throw new Error(`Telegram HTTP ${response.status}: ${raw.slice(0, 300)}`);
-  }
   let payload: unknown;
   try {
     payload = JSON.parse(raw);
   } catch {
+    if (!response.ok) {
+      throw new TelegramDeliveryError(`Telegram HTTP ${response.status}`,
+        response.status === 400 || response.status === 404);
+    }
     throw new Error("O Telegram devolveu uma resposta JSON inválida");
+  }
+  if (!response.ok) {
+    const parameters = (payload as { parameters?: { retry_after?: unknown } } | null)?.parameters;
+    const retryAfter = parameters?.retry_after;
+    // 400/404: mensagem ou destino inválido. Credenciais e indisponibilidade
+    // recebem backoff limitado, para permitir correção sem descartar de imediato.
+    throw new TelegramDeliveryError(`Telegram HTTP ${response.status}`,
+      response.status === 400 || response.status === 404,
+      response.status === 429 && typeof retryAfter === "number" && Number.isFinite(retryAfter)
+        ? Math.min(Math.max(retryAfter, 0), 604_800) : 0);
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("O Telegram devolveu uma resposta inesperada");
@@ -1022,13 +1095,17 @@ async function statusResponse(env: Env): Promise<Response> {
          SUM(alert_attempt_count) AS alert_attempts,
          SUM(analysis_attempt_count) AS analysis_attempts,
          SUM(CASE WHEN alert_error IS NOT NULL AND alert_sent_at IS NULL THEN 1 ELSE 0 END) AS alert_errors,
-         SUM(CASE WHEN status = 'ready' AND last_error IS NOT NULL THEN 1 ELSE 0 END) AS analysis_errors
+         SUM(CASE WHEN status = 'ready' AND last_error IS NOT NULL THEN 1 ELSE 0 END) AS analysis_errors,
+         SUM(CASE WHEN alert_dead_lettered_at IS NOT NULL THEN 1 ELSE 0 END) AS alert_quarantined,
+         SUM(CASE WHEN analysis_dead_lettered_at IS NOT NULL THEN 1 ELSE 0 END) AS analysis_quarantined
        FROM items`,
     ).first<Record<string, number | null>>(),
     env.DB.prepare(
-      `SELECT id, title, url, retry_count, last_error, dead_lettered_at
+      `SELECT id, title, url, retry_count, last_error, dead_lettered_at,
+              alert_error, alert_dead_lettered_at, analysis_dead_lettered_at
        FROM items WHERE dead_lettered_at IS NOT NULL
-       ORDER BY dead_lettered_at DESC LIMIT 20`,
+         OR alert_dead_lettered_at IS NOT NULL OR analysis_dead_lettered_at IS NOT NULL
+       ORDER BY COALESCE(dead_lettered_at, alert_dead_lettered_at, analysis_dead_lettered_at) DESC LIMIT 20`,
     ).all<{
       id: string;
       title: string;

@@ -42,3 +42,11 @@ export const PROCESSING_RETRY_BACKOFF_MINUTES = [5, 15, 60, 240] as const;
 export const SOURCE_FETCH_TIMEOUT_MS = 20_000;
 export const MAX_SOURCE_HTML_BYTES = 1_500_000;
 export const ANALYSIS_RETENTION_DAYS = 180;
+
+// Pior ciclo: 18 consultas de coleta/manutenção + 18 fetches com redirects
+// + 1 alerta (até 5 operações) + 1 pauta (até 6 operações) = 47 subrequests.
+// Inclui a gravação de erro caso a persistência após o envio falhe.
+export const MAX_ALERT_DELIVERIES = 1;
+export const MAX_ANALYSIS_DELIVERIES = 1;
+export const MAX_EXPIRED_CLAIMS = 20;
+export const MAX_DELIVERY_FAILURES = 5;

@@ -4,6 +4,8 @@ node_modules/
 .dev.vars
 .env
 local/.env
+local/.env.*
+!local/.env.example
 local/perfil-canal.json
 local/desempenho.db*
 *.log

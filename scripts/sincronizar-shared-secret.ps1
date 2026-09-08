@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $envPath = Join-Path $PSScriptRoot "..\local\.env"
 $examplePath = Join-Path $PSScriptRoot "..\local\.env.example"
-$temporaryEnvPath = "$envPath.pending"
+$temporaryEnvPath = "$envPath.pending.$([guid]::NewGuid().ToString('N'))"
 if (Test-Path -LiteralPath $envPath) {
     $envLines = @(Get-Content -LiteralPath $envPath)
 }
@@ -54,9 +54,9 @@ if (-not $hasWorkerUrl) { $newEnvLines += "WORKER_URL=$WorkerUrl" }
 if (-not $hasSharedSecret) { $newEnvLines += "SHARED_SECRET=$sharedSecret" }
 
 Write-Host "Preparando a nova configuracao local..." -ForegroundColor Cyan
-$newEnvLines | Set-Content -LiteralPath $temporaryEnvPath -Encoding utf8
 
 try {
+    $newEnvLines | Set-Content -LiteralPath $temporaryEnvPath -Encoding utf8
     Write-Host "Enviando a nova chave ao segredo SHARED_SECRET do Worker..."
     $sharedSecret | & npx.cmd wrangler secret put SHARED_SECRET
     if ($LASTEXITCODE -ne 0) {
@@ -87,15 +87,12 @@ try {
     Write-Host "Autenticacao confirmada: SHARED_SECRET esta sincronizado." -ForegroundColor Green
     $status
 }
-catch {
-    if (Test-Path -LiteralPath $temporaryEnvPath) {
-        Remove-Item -LiteralPath $temporaryEnvPath -Force
-    }
-    throw
-}
 finally {
     $sharedSecret = $null
     $oldSharedSecret = $null
     $headers = $null
     if ($newEnvLines) { [Array]::Clear($newEnvLines, 0, $newEnvLines.Count) }
+    if (Test-Path -LiteralPath $temporaryEnvPath) {
+        Remove-Item -LiteralPath $temporaryEnvPath -Force
+    }
 }
